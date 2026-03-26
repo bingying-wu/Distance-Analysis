@@ -2,7 +2,18 @@ import streamlit as st
 import pandas as pd
 import os
 
-from dashboard.viz import load_distance_matrix, load_preprocessed_numeric, compute_pca_embedding, plot_embedding, plot_distance_histogram, plot_neighbor_bar
+from dashboard.viz import (
+    load_distance_matrix,
+    load_preprocessed_numeric,
+    compute_pca_embedding,
+    plot_embedding_2d,
+    plot_embedding_3d,
+    plot_distance_histogram,
+    plot_neighbor_bar,
+    get_available_numeric_features,
+    compute_raw_feature_view,
+    plot_raw_feature_scatter_2d,
+)
 
 st.set_page_config(page_title="Strategic Product Optimizer", layout="wide")
 st.title("Product Portfolio Analysis")
@@ -130,12 +141,85 @@ if os.path.exists(nn_path):
         # 2) Distance histogram
         st.plotly_chart(plot_distance_histogram(dm), use_container_width=True)
 
-        # 3) PCA embedding + highlight selected + neighbors
-        emb_df = compute_pca_embedding(pre, list(dm.index))
-        st.plotly_chart(
-            plot_embedding(emb_df, selected=selected_product, neighbors=nb_df["neighbor"].tolist()),
-            use_container_width=True
+        # 3) Feature selector + 2D / 3D PCA
+        st.markdown("### PCA Feature Selection")
+
+        available_features = get_available_numeric_features(pre_path)
+        selected_features = st.multiselect(
+            "Select numeric features to include in PCA",
+            options=available_features,
+            default=available_features,
+            key=f"pca_features_{folder_name}"
         )
+
+        if len(selected_features) < 2:
+            st.warning("Please select at least 2 numeric features to generate a 2D PCA view.")
+        else:
+            pre_pca = load_preprocessed_numeric(pre_path, selected_features=selected_features)
+
+            if len(pre_pca) == len(dm):
+                pre_pca.index = dm.index
+
+            # 2D PCA
+            emb_df_2d = compute_pca_embedding(pre_pca, list(dm.index), n_components=2)
+            st.plotly_chart(
+                plot_embedding_2d(
+                    emb_df_2d,
+                    selected=selected_product,
+                    neighbors=nb_df["neighbor"].tolist()
+                ),
+                use_container_width=True
+            )
+
+            # 3D PCA
+            st.markdown("### 3D PCA View")
+            if len(selected_features) >= 3:
+                emb_df_3d = compute_pca_embedding(pre_pca, list(dm.index), n_components=3)
+                st.plotly_chart(
+                    plot_embedding_3d(
+                        emb_df_3d,
+                        selected=selected_product,
+                        neighbors=nb_df["neighbor"].tolist()
+                    ),
+                    use_container_width=True
+                )
+            else:
+                st.info("Select at least 3 numeric features to display the 3D PCA view.")
+        # 4) Raw feature scatter with user-defined axes
+        st.markdown("### 2D Raw Feature Comparison")
+
+        raw_x = st.selectbox(
+            "Select x-axis feature",
+            options=available_features,
+            index=0,
+            key=f"raw_x_{folder_name}"
+        )
+
+        default_y_index = 1 if len(available_features) > 1 else 0
+        raw_y = st.selectbox(
+            "Select y-axis feature",
+            options=available_features,
+            index=default_y_index,
+            key=f"raw_y_{folder_name}"
+        )
+
+        if raw_x == raw_y:
+            st.info("Please choose two different features for the raw 2D scatter.")
+        else:
+            raw_df = compute_raw_feature_view(
+                pre,
+                list(dm.index),
+                x_feature=raw_x,
+                y_feature=raw_y,
+            )
+            st.plotly_chart(
+                plot_raw_feature_scatter_2d(
+                    raw_df,
+                    selected=selected_product,
+                    neighbors=nb_df["neighbor"].tolist()
+                ),
+                use_container_width=True
+            )
     else:
         st.warning("Missing distance_matrix.csv or preprocessed_output.csv for visualizations.")
 
